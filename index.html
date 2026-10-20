@@ -123,6 +123,7 @@
   .input-wrap input.bad { color: var(--fee); }
   #apiKey { font-family: var(--font-mono); font-size: 15px; }
   .rate-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  a.btn { text-decoration: none; display: inline-flex; align-items: center; }
   .unit {
     display: flex; align-items: center; padding: 0 14px; font-family: var(--font-mono);
     font-size: 13px; font-weight: 600; border-left: 1px solid var(--line); color: var(--muted); white-space: nowrap;
@@ -320,7 +321,8 @@
           <p class="note">Ključ se čuva samo u ovom pretraživaču, na ovom uređaju. Ne ulazi u stranicu i niko ga drugi ne vidi.</p>
         </div>
         <div class="rate-actions">
-          <button type="button" class="btn primary" id="fetchBtn">Osveži kurs</button>
+          <button type="button" class="btn primary" id="fetchBtn">Osveži kurs sa CurrencyFreaks</button>
+          <a class="btn" href="https://www.xe.com/currencyconverter/convert/?Amount=1&amp;From=USD&amp;To=EUR" target="_blank" rel="noopener">Otvori xe.com USD → EUR ↗</a>
         </div>
         <p class="note" id="fetchMsg" aria-live="polite"></p>
         <div class="seg small" role="group" aria-label="Smer kursa">
@@ -333,7 +335,7 @@
         </div>
         <p class="note" id="rateInv"></p>
         <p class="note warn" id="rateNote"></p>
-        <p class="note">Pre svake transakcije pritisnite „Osveži kurs“. Kurs možete upisati i ručno.</p>
+        <p class="note">Imate API ključ: pre svake transakcije pritisnite „Osveži kurs sa CurrencyFreaks“. Nemate ključ: otvorite xe.com, kopirajte kurs i nalepite ga u polje za kurs.</p>
       </div>
 
       <div class="field">
@@ -579,7 +581,7 @@
     $('rateInv').innerHTML = 'Isto kao: ' + inv;
     var n = $('rateNote');
     if (!st.rateEdited) {
-      n.textContent = 'Ovo je primer kursa. Pritisnite „Osveži kurs“.';
+      n.textContent = 'Ovo je primer kursa. Osvežite ga sa CurrencyFreaks ili nalepite kurs sa xe.com.';
     } else {
       var mins = Math.floor((Date.now() - st.rateTime.getTime()) / 60000);
       n.textContent = mins >= 15 ? 'Kurs je od ' + hhmm(st.rateTime) + ' (pre ' + mins + ' min). Osvežite ga pre transakcije.' : '';
@@ -654,6 +656,17 @@
   $('rdUsd').addEventListener('click', function () { setRateDir('usd-eur'); });
   $('rdEur').addEventListener('click', function () { setRateDir('eur-usd'); });
 
+  // Nalepljen tekst sa xe.com („1 USD = 0.8612 EUR“, „0.8612 EUR“) svodi se na sam broj
+  $('rate').addEventListener('paste', function (ev) {
+    var cd = ev.clipboardData || window.clipboardData;
+    var t = cd ? cd.getData('text') : '';
+    if (!t || !isNaN(parseNum(t))) return;
+    var m = /=\s*(\d[\d.,]*\d|\d)/.exec(t) || /(\d+[.,]\d+)/.exec(t);
+    if (!m) return;
+    ev.preventDefault();
+    $('rate').value = m[1];
+    $('rate').dispatchEvent(new Event('input'));
+  });
   $('rate').addEventListener('input', function () {
     var v = parseNum($('rate').value);
     var ok = v > 0 && isFinite(v);
@@ -705,7 +718,7 @@
       }, function () {
         fetchMsg('Kurs nije stigao. Proverite internet vezu i pokušajte ponovo.', 'warn');
       })
-      .then(function () { b.disabled = false; b.textContent = 'Osveži kurs'; });
+      .then(function () { b.disabled = false; b.textContent = 'Osveži kurs sa CurrencyFreaks'; });
   }
   $('fetchBtn').addEventListener('click', fetchRate);
   $('keyToggle').addEventListener('click', function () { showKey($('keyField').hidden); });
