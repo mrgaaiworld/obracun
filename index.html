@@ -1,0 +1,881 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style><title>Obračun isplata</title></head><body>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Instrument+Sans:wght@400..700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  /* Layout: unos levo (smer, iznos, kurs, provizija), obračunski list desno; na uskom ekranu jedna kolona. Evidencija ispod. */
+  :root {
+    --bg: #ECEFF2;
+    --surface: #FFFFFF;
+    --surface-2: #F4F6F8;
+    --ink: #13202B;
+    --muted: #586873;
+    --line: #D3DBE1;
+    --accent: #1F4FD8;
+    --accent-ink: #FFFFFF;
+    --usdt: #0B7F5E;
+    --eur: #1F4FD8;
+    --fee: #B04A1B;
+    --op-a: #E4F1EA; /* USDT → EUR, šalje */
+    --op-b: #E2EEF1; /* USDT → EUR, želi isplatu */
+    --op-c: #E7EBF7; /* EUR → USDT, oduzima se */
+    --op-d: #EEE9F6; /* EUR → USDT, dodaje se */
+    --op-e: #F5EEE5; /* EUR → USDT, želi USDT */
+    --share-a: #1F4FD8;
+    --share-b: #0B7F5E;
+    --font-display: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
+    --font-body: 'Instrument Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E151B;
+      --surface: #16212A;
+      --surface-2: #1B2832;
+      --ink: #E6EDF2;
+      --muted: #93A4B0;
+      --line: #2B3A46;
+      --accent: #7E9BFF;
+      --accent-ink: #0E151B;
+      --usdt: #3FCBA2;
+      --eur: #8EA6FF;
+      --fee: #F0996B;
+      --op-a: #0C1A15;
+      --op-b: #0B1819;
+      --op-c: #0F1524;
+      --op-d: #15132A;
+      --op-e: #1B1611;
+      --share-a: #7E9BFF;
+      --share-b: #3FCBA2;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E151B;
+    --surface: #16212A;
+    --surface-2: #1B2832;
+    --ink: #E6EDF2;
+    --muted: #93A4B0;
+    --line: #2B3A46;
+    --accent: #7E9BFF;
+    --accent-ink: #0E151B;
+    --usdt: #3FCBA2;
+    --eur: #8EA6FF;
+    --fee: #F0996B;
+    --op-a: #0C1A15;
+    --op-b: #0B1819;
+    --op-c: #0F1524;
+    --op-d: #15132A;
+    --op-e: #1B1611;
+    --share-a: #7E9BFF;
+    --share-b: #3FCBA2;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    transition: background-color 0.45s ease;
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.5;
+    padding-block: 28px 56px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 32px; }
+
+  header { display: flex; flex-direction: column; gap: 6px; }
+  h1 {
+    font-family: var(--font-display);
+    font-size: clamp(28px, 5vw, 40px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+    margin: 0;
+    text-wrap: balance;
+  }
+  header p { margin: 0; color: var(--muted); max-width: 60ch; }
+
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 36px; align-items: start; }
+  .panel { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+
+  .field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .lbl, .field > label {
+    font-size: 12px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted);
+  }
+  .lbl-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .lbl-row a { font-size: 13px; color: var(--accent); text-decoration: none; font-weight: 500; }
+  .lbl-row a:hover { text-decoration: underline; }
+
+  .input-wrap {
+    display: flex; align-items: stretch; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 6px; min-width: 0;
+  }
+  .input-wrap:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
+  }
+  .input-wrap input {
+    flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink);
+    font-family: var(--font-mono); font-size: 20px; font-weight: 500; padding: 12px 14px; outline: none;
+    font-variant-numeric: tabular-nums;
+  }
+  .input-wrap input.bad { color: var(--fee); }
+  #apiKey { font-family: var(--font-mono); font-size: 15px; }
+  .rate-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .unit {
+    display: flex; align-items: center; padding: 0 14px; font-family: var(--font-mono);
+    font-size: 13px; font-weight: 600; border-left: 1px solid var(--line); color: var(--muted); white-space: nowrap;
+  }
+  .unit[data-cur="USDT"] { color: var(--usdt); }
+  .unit[data-cur="EUR"] { color: var(--eur); }
+
+  .seg {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
+  }
+  .seg button {
+    font: inherit; border: 0; background: transparent; color: var(--ink); padding: 9px 12px;
+    border-radius: 4px; cursor: pointer; text-align: left; display: flex; flex-direction: column; gap: 1px; min-width: 0;
+  }
+  .seg button b { font-family: var(--font-mono); font-size: 14px; font-weight: 600; }
+  .seg button span { font-size: 12.5px; opacity: 0.75; }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+  .seg button:not([aria-pressed="true"]):hover { background: var(--surface-2); }
+  .seg.small button { padding: 7px 12px; }
+  .seg.small button b { font-size: 13px; }
+
+  button:focus-visible, a:focus-visible, input[type="range"]:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    font-family: var(--font-mono); font-size: 13px; font-weight: 500; padding: 5px 10px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+    border-radius: 999px; cursor: pointer;
+  }
+  .chip:hover { border-color: var(--muted); }
+  .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  input[type="range"] { width: 100%; accent-color: var(--accent); margin: 4px 0 0; }
+  .range-scale { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+
+  .note { font-size: 13px; color: var(--muted); margin: 0; }
+  .note.warn { color: var(--fee); font-weight: 500; }
+  .note.ok { color: var(--usdt); font-weight: 500; }
+  .note:empty { display: none; }
+  .note b { font-family: var(--font-mono); font-weight: 500; color: var(--ink); }
+
+  /* Obračunski list */
+  .slip {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
+    padding: 20px 22px 22px; display: flex; flex-direction: column; gap: 0; min-width: 0;
+  }
+  .slip-head {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    padding-bottom: 12px; border-bottom: 1px dashed var(--line);
+  }
+  .slip-head .t { font-size: 12px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
+  .slip-head .d { font-family: var(--font-mono); font-size: 14px; font-weight: 600; }
+  dl.rows { margin: 0; }
+  .row {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 16px;
+    padding: 10px 0; border-bottom: 1px dashed var(--line);
+  }
+  .row dt { color: var(--muted); min-width: 0; }
+  .row dd {
+    margin: 0; font-family: var(--font-mono); font-size: 14px; font-weight: 500; text-align: right;
+    font-variant-numeric: tabular-nums; overflow-wrap: anywhere; min-width: 0;
+  }
+  .row.fee dd { color: var(--fee); }
+  .row.eff dt, .row.eff dd { font-size: 13px; }
+  .total { margin-top: 14px; border-top: 2px solid var(--ink); padding-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .tot { display: flex; flex-direction: column; gap: 2px; }
+  .tot .l { font-size: 12px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
+  .tot .v {
+    font-family: var(--font-mono); font-weight: 600; font-size: clamp(30px, 6vw, 44px); line-height: 1.1;
+    font-variant-numeric: tabular-nums; overflow-wrap: anywhere; letter-spacing: -0.02em;
+  }
+  .tot .v small { font-size: 0.45em; font-weight: 600; letter-spacing: 0.02em; margin-left: 8px; }
+  .tot .v small[data-cur="USDT"] { color: var(--usdt); }
+  .tot .v small[data-cur="EUR"] { color: var(--eur); }
+  .tot.second .v { font-size: clamp(20px, 3.4vw, 26px); }
+  .empty { padding: 28px 0; color: var(--muted); }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+  .btn {
+    font: inherit; font-weight: 600; padding: 10px 16px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  }
+  .btn:hover { border-color: var(--muted); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* Evidencija */
+  .hist { display: flex; flex-direction: column; gap: 12px; }
+  .hist-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .hist-head h2 { font-family: var(--font-display); font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
+  .hist ul { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+  .hist li {
+    display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 4px 16px; padding: 10px 14px;
+    border-bottom: 1px solid var(--line); font-size: 14px;
+  }
+  .hist li:last-child { border-bottom: 0; }
+  .hist li time { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+  .hist li span { font-family: var(--font-mono); font-size: 13.5px; overflow-wrap: anywhere; min-width: 0; }
+  .hist .none { padding: 16px 14px; color: var(--muted); }
+  .link-btn {
+    font: inherit; font-size: 13px; background: none; border: 0; color: var(--muted); cursor: pointer;
+    text-decoration: underline; padding: 4px 0;
+  }
+  .link-btn.danger { color: var(--fee); font-weight: 600; }
+
+  body[data-op="a"] { background: var(--op-a); }
+  body[data-op="b"] { background: var(--op-b); }
+  body[data-op="c"] { background: var(--op-c); }
+  body[data-op="d"] { background: var(--op-d); }
+  body[data-op="e"] { background: var(--op-e); }
+
+  /* Podela zarade */
+  .split { display: flex; flex-direction: column; gap: 14px; }
+  .split-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .split-head h2 { font-family: var(--font-display); font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
+  .split-head .fee-tot { font-family: var(--font-mono); font-size: 14px; font-weight: 600; color: var(--fee); }
+  .split-box {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
+    padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 16px;
+  }
+  .split-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+  .party { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding-left: 12px; border-left: 3px solid var(--share-a); }
+  .party.b { border-left-color: var(--share-b); }
+  .party .name { font-family: var(--font-body); font-size: 16px; font-weight: 600; }
+  .party .amt {
+    font-family: var(--font-mono); font-weight: 600; font-size: clamp(22px, 4vw, 28px); line-height: 1.15;
+    font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
+  }
+  .party .amt small { font-size: 0.5em; margin-left: 6px; color: var(--eur); }
+  .bar { display: flex; height: 8px; border-radius: 999px; overflow: hidden; background: var(--surface-2); }
+  .bar i { display: block; height: 100%; transition: width 0.25s ease; }
+  .bar .ba { background: var(--share-a); }
+  .bar .bb { background: var(--share-b); flex: 1; }
+
+  @media (max-width: 820px) {
+    .layout { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+    .split-grid { grid-template-columns: minmax(0, 1fr); }
+    .hist li { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Obračun isplata</h1>
+    <p>USDT i EUR po kursu sa CurrencyFreaks, uz proviziju od 0,3 do 5 %. USDT se računa 1:1 sa USD.</p>
+  </header>
+
+  <div class="layout">
+    <section class="panel" aria-label="Unos">
+      <div class="field">
+        <span class="lbl" id="dirLbl">Smer</span>
+        <div class="seg" role="group" aria-labelledby="dirLbl">
+          <button type="button" id="dirA" aria-pressed="true"><b>USDT → EUR</b><span>klijent šalje USDT</span></button>
+          <button type="button" id="dirB" aria-pressed="false"><b>EUR → USDT</b><span>klijent kupuje USDT</span></button>
+        </div>
+      </div>
+
+      <div class="field">
+        <span class="lbl" id="knLbl">Šta je zadato</span>
+        <div class="seg" role="group" aria-labelledby="knLbl">
+          <button type="button" id="knA" aria-pressed="true"><b id="knAb">Šalje USDT</b><span id="knAs">računam isplatu u EUR</span></button>
+          <button type="button" id="knB" aria-pressed="false"><b id="knBb">Želi isplatu u EUR</b><span id="knBs">računam koliko USDT šalje</span></button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="amount" id="amountLbl">Klijent šalje</label>
+        <div class="input-wrap">
+          <input id="amount" type="text" inputmode="decimal" autocomplete="off" value="1000">
+          <span class="unit" id="amountUnit" data-cur="USDT">USDT</span>
+        </div>
+      </div>
+
+      <div class="field" id="feeModeField" hidden>
+        <span class="lbl" id="feeModeLbl">Ko plaća proviziju</span>
+        <div class="seg" role="group" aria-labelledby="feeModeLbl">
+          <button type="button" id="fmDeduct" aria-pressed="true"><b>Oduzima se</b><span>od uplaćenih EUR</span></button>
+          <button type="button" id="fmAdd" aria-pressed="false"><b>Dodaje se</b><span>klijent plaća povrh</span></button>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="lbl-row">
+          <label for="rate" class="lbl">Kurs</label>
+          <button type="button" class="link-btn" id="keyToggle" aria-controls="keyField" aria-expanded="false">API ključ</button>
+        </div>
+        <div class="field" id="keyField" hidden>
+          <div class="input-wrap">
+            <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="CurrencyFreaks API ključ" aria-label="CurrencyFreaks API ključ">
+          </div>
+          <p class="note">Ključ se čuva samo u ovom pretraživaču, na ovom uređaju. Ne ulazi u stranicu i niko ga drugi ne vidi.</p>
+        </div>
+        <div class="rate-actions">
+          <button type="button" class="btn primary" id="fetchBtn">Osveži kurs</button>
+        </div>
+        <p class="note" id="fetchMsg" aria-live="polite"></p>
+        <div class="seg small" role="group" aria-label="Smer kursa">
+          <button type="button" id="rdUsd" aria-pressed="true"><b>1 USD = ? EUR</b></button>
+          <button type="button" id="rdEur" aria-pressed="false"><b>1 EUR = ? USD</b></button>
+        </div>
+        <div class="input-wrap">
+          <input id="rate" type="text" inputmode="decimal" autocomplete="off" value="0,8600" aria-describedby="rateNote rateInv">
+          <span class="unit" id="rateUnit" data-cur="EUR">EUR</span>
+        </div>
+        <p class="note" id="rateInv"></p>
+        <p class="note warn" id="rateNote"></p>
+        <p class="note">Pre svake transakcije pritisnite „Osveži kurs“. Kurs možete upisati i ručno.</p>
+      </div>
+
+      <div class="field">
+        <div class="lbl-row">
+          <label for="pct" class="lbl">Provizija</label>
+          <span class="note">dozvoljeno <b>0,3 – 5 %</b></span>
+        </div>
+        <div class="input-wrap">
+          <input id="pct" type="text" inputmode="decimal" autocomplete="off" value="1,5">
+          <span class="unit">%</span>
+        </div>
+        <input id="pctRange" type="range" min="0.3" max="5" step="0.05" value="1.5" aria-label="Provizija, klizač">
+        <div class="range-scale" aria-hidden="true"><span>0,3</span><span>5</span></div>
+        <div class="chips" id="chips"></div>
+        <p class="note warn" id="feeNote"></p>
+      </div>
+    </section>
+
+    <section class="slip" aria-label="Obračun" aria-live="polite">
+      <div class="slip-head"><span class="t">Obračun</span><span class="d" id="slipDir">USDT → EUR</span></div>
+      <dl class="rows" id="rows"></dl>
+      <div class="total" id="totals"></div>
+      <div class="actions">
+        <button type="button" class="btn primary" id="copyBtn">Kopiraj obračun</button>
+        <button type="button" class="btn" id="saveBtn">Sačuvaj u evidenciju</button>
+      </div>
+    </section>
+  </div>
+
+  <section class="split" aria-label="Podela zarade">
+    <div class="split-head">
+      <h2>Podela zarade</h2>
+      <span class="fee-tot">Provizija: <span id="spFee">—</span></span>
+    </div>
+    <div class="split-box">
+      <div class="split-grid">
+        <div class="party">
+          <div class="input-wrap"><input id="spNameA" class="name" type="text" maxlength="30" autocomplete="off" aria-label="Ime prve strane"></div>
+          <div class="input-wrap">
+            <input id="spPctA" type="text" inputmode="decimal" autocomplete="off" aria-label="Deo provizije za prvu stranu, u procentima">
+            <span class="unit">%</span>
+          </div>
+          <div class="amt" aria-live="polite"><span id="spAmtA">—</span><small>EUR</small></div>
+        </div>
+        <div class="party b">
+          <div class="input-wrap"><input id="spNameB" class="name" type="text" maxlength="30" autocomplete="off" aria-label="Ime druge strane"></div>
+          <div class="input-wrap">
+            <input id="spPctB" type="text" inputmode="decimal" autocomplete="off" aria-label="Deo provizije za drugu stranu, u procentima">
+            <span class="unit">%</span>
+          </div>
+          <div class="amt" aria-live="polite"><span id="spAmtB">—</span><small>EUR</small></div>
+        </div>
+      </div>
+      <div class="bar" aria-hidden="true"><i class="ba" id="spBar"></i><i class="bb"></i></div>
+      <p class="note warn" id="spNote"></p>
+      <p class="note">Upišite koliko procenata provizije ide jednoj strani, druga dobija ostatak zadate provizije (npr. od 3 %: 1 % i 2 %). Imena i podela se pamte u ovom pretraživaču.</p>
+    </div>
+  </section>
+
+  <section class="hist" aria-label="Evidencija">
+    <div class="hist-head">
+      <h2>Evidencija</h2>
+      <button type="button" class="link-btn" id="clearBtn">Obriši evidenciju</button>
+    </div>
+    <ul id="histList"></ul>
+    <p class="note">Evidencija se čuva samo u ovom pretraživaču i ne deli se sa drugim uređajima.</p>
+  </section>
+</div>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var f2 = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  var fR = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 4, maximumFractionDigits: 6 });
+  var fP = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 2 });
+  var fmt = function (n) { return f2.format(n); };
+  var r2 = function (x) { return Math.round((x + Number.EPSILON) * 100) / 100; };
+  var CHIPS = [0.3, 0.5, 1, 1.5, 2, 3, 5];
+  var FEE_MIN = 0.3, FEE_MAX = 5;
+  var STORE = 'obracun-isplata-evidencija';
+  var SPLIT = 'obracun-isplata-podela-v2';
+  var sp = { a: 'Ja', b: 'Partner', pa: null }; // pa = procentni poeni provizije za prvu stranu; null = pola-pola
+
+  var st = { dir: 'usdt2eur', known: 'send', feeMode: 'deduct', rateDir: 'usd-eur', eurPerUsd: 0.86, rateEdited: false, rateTime: null };
+  var last = null;
+  var history = [];
+
+  function parseNum(s, thousands) {
+    s = String(s).trim().replace(/\s/g, '');
+    if (!s) return NaN;
+    if (thousands && /^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+    var lc = s.lastIndexOf(','), ld = s.lastIndexOf('.');
+    if (lc > -1 && ld > -1) {
+      s = lc > ld ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
+    } else if (lc > -1) {
+      s = s.split(',').length > 2 ? s.replace(/,/g, '') : s.replace(',', '.');
+    } else if (ld > -1 && s.split('.').length > 2) {
+      s = s.replace(/\./g, '');
+    }
+    if (!/^(\d+\.?\d*|\.\d+)$/.test(s)) return NaN;
+    return parseFloat(s);
+  }
+
+  function plainRate(n) {
+    return n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '').replace('.', ',');
+  }
+
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function hhmm(d) { return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+  function stamp(d) { return pad(d.getDate()) + '.' + pad(d.getMonth() + 1) + '. ' + hhmm(d); }
+
+  function calc() {
+    var amt = parseNum($('amount').value, true);
+    var pct = parseNum($('pct').value);
+    var rate = st.eurPerUsd;
+    if (!(amt > 0) || !(pct >= 0) || !(rate > 0) || !isFinite(amt) || !isFinite(pct)) return null;
+
+    var rows = [], totals = [], eff, dirLabel, inLine, outLine, extra = '';
+    var E = function (n) { return fmt(n) + ' EUR'; };
+    var U = function (n) { return fmt(n) + ' USDT'; };
+    var pf = fP.format(pct) + ' %';
+    var fee, net, usdt, gross, base, total;
+
+    if (st.dir === 'usdt2eur' && st.known === 'get') {
+      dirLabel = 'USDT → EUR';
+      fee = r2(amt * pct / 100);
+      base = r2(amt + fee);
+      usdt = r2(base / rate);
+      rows = [
+        ['Klijent želi isplatu', E(amt)],
+        ['Provizija ' + pf + ' (povrh)', '+ ' + E(fee), 'fee'],
+        ['Ukupno za pretvaranje', E(base)],
+        ['Kurs', '1 EUR = ' + fR.format(1 / rate) + ' USDT'],
+        ['Efektivni kurs', '1 USDT = ' + fR.format(amt / usdt) + ' EUR', 'eff']
+      ];
+      totals = [['Klijent mora da pošalje', fmt(usdt), 'USDT'], ['Klijent dobija isplatu', fmt(amt), 'EUR']];
+      inLine = U(usdt); outLine = E(amt); extra = ' · provizija povrh iznosa';
+    } else if (st.dir === 'eur2usdt' && st.known === 'get') {
+      dirLabel = 'EUR → USDT';
+      base = r2(amt * rate);
+      fee = r2(base * pct / 100);
+      total = r2(base + fee);
+      rows = [
+        ['Klijent želi', U(amt)],
+        ['Kurs', '1 USDT = ' + fR.format(rate) + ' EUR'],
+        ['Vrednost po kursu', E(base)],
+        ['Provizija ' + pf + ' (povrh)', '+ ' + E(fee), 'fee'],
+        ['Efektivni kurs', '1 USDT = ' + fR.format(total / amt) + ' EUR', 'eff']
+      ];
+      totals = [['Klijent uplaćuje', fmt(total), 'EUR'], ['Klijent dobija', fmt(amt), 'USDT']];
+      inLine = E(total); outLine = U(amt); extra = ' · provizija povrh iznosa';
+    } else if (st.dir === 'usdt2eur') {
+      dirLabel = 'USDT → EUR';
+      gross = r2(amt * rate);
+      fee = r2(gross * pct / 100);
+      net = r2(gross - fee);
+      rows = [
+        ['Klijent šalje', U(amt)],
+        ['Kurs', '1 USDT = ' + fR.format(rate) + ' EUR'],
+        ['Vrednost po kursu', E(gross)],
+        ['Provizija ' + pf, '− ' + E(fee), 'fee'],
+        ['Efektivni kurs', '1 USDT = ' + fR.format(net / amt) + ' EUR', 'eff']
+      ];
+      totals = [['Isplata klijentu', fmt(net), 'EUR']];
+      inLine = U(amt); outLine = E(net);
+    } else if (st.feeMode === 'deduct') {
+      dirLabel = 'EUR → USDT';
+      fee = r2(amt * pct / 100);
+      base = r2(amt - fee);
+      usdt = r2(base / rate);
+      rows = [
+        ['Klijent uplaćuje', E(amt)],
+        ['Provizija ' + pf + ' (oduzeta)', '− ' + E(fee), 'fee'],
+        ['Za konverziju', E(base)],
+        ['Kurs', '1 EUR = ' + fR.format(1 / rate) + ' USDT'],
+        ['Efektivni kurs', '1 USDT = ' + fR.format(amt / usdt) + ' EUR', 'eff']
+      ];
+      totals = [['Klijent dobija', fmt(usdt), 'USDT']];
+      inLine = E(amt); outLine = U(usdt); extra = ' · provizija oduzeta';
+    } else {
+      dirLabel = 'EUR → USDT';
+      usdt = r2(amt / rate);
+      fee = r2(amt * pct / 100);
+      total = r2(amt + fee);
+      rows = [
+        ['Vrednost USDT-a', E(amt)],
+        ['Kurs', '1 EUR = ' + fR.format(1 / rate) + ' USDT'],
+        ['Klijent dobija', U(usdt)],
+        ['Provizija ' + pf + ' (povrh)', '+ ' + E(fee), 'fee'],
+        ['Efektivni kurs', '1 USDT = ' + fR.format(total / usdt) + ' EUR', 'eff']
+      ];
+      totals = [['Klijent uplaćuje ukupno', fmt(total), 'EUR'], ['Klijent dobija', fmt(usdt), 'USDT']];
+      inLine = E(total); outLine = U(usdt); extra = ' · provizija povrh iznosa';
+    }
+
+    var rateTxt = '1 USD = ' + fR.format(rate) + ' EUR';
+    var text = ['Obračun ' + dirLabel]
+      .concat(rows.map(function (r) { return r[0] + ': ' + r[1]; }))
+      .concat(totals.map(function (t) { return t[0] + ': ' + t[1] + ' ' + t[2]; }))
+      .join('\n');
+    var summary = inLine + ' → ' + outLine + ' · ' + pf + extra + ' · ' + rateTxt;
+    return { rows: rows, totals: totals, dirLabel: dirLabel, text: text, summary: summary, fee: fee, pct: pct };
+  }
+
+  function renderSlip() {
+    var rowsEl = $('rows'), totEl = $('totals');
+    rowsEl.textContent = ''; totEl.textContent = '';
+    $('slipDir').textContent = st.dir === 'usdt2eur' ? 'USDT → EUR' : 'EUR → USDT';
+    last = calc();
+    $('copyBtn').disabled = !last;
+    $('saveBtn').disabled = !last;
+    renderSplit();
+    if (!last) {
+      var p = document.createElement('p');
+      p.className = 'empty';
+      p.textContent = 'Unesite iznos, kurs i proviziju da bi se obračun prikazao.';
+      rowsEl.appendChild(p);
+      return;
+    }
+    last.rows.forEach(function (r) {
+      var d = document.createElement('div');
+      d.className = 'row' + (r[2] ? ' ' + r[2] : '');
+      var dt = document.createElement('dt'); dt.textContent = r[0];
+      var dd = document.createElement('dd'); dd.textContent = r[1];
+      d.appendChild(dt); d.appendChild(dd); rowsEl.appendChild(d);
+    });
+    last.totals.forEach(function (t, i) {
+      var d = document.createElement('div');
+      d.className = 'tot' + (i ? ' second' : '');
+      var l = document.createElement('span'); l.className = 'l'; l.textContent = t[0];
+      var v = document.createElement('span'); v.className = 'v'; v.textContent = t[1];
+      var u = document.createElement('small'); u.setAttribute('data-cur', t[2]); u.textContent = t[2];
+      v.appendChild(u); d.appendChild(l); d.appendChild(v); totEl.appendChild(d);
+    });
+  }
+
+  function renderRateNotes() {
+    var e = st.eurPerUsd;
+    $('rateInv').innerHTML = '';
+    var inv = st.rateDir === 'usd-eur'
+      ? '1 EUR = <b>' + fR.format(1 / e) + '</b> USD'
+      : '1 USD = <b>' + fR.format(e) + '</b> EUR';
+    $('rateInv').innerHTML = 'Isto kao: ' + inv;
+    var n = $('rateNote');
+    if (!st.rateEdited) {
+      n.textContent = 'Ovo je primer kursa. Pritisnite „Osveži kurs“.';
+    } else {
+      var mins = Math.floor((Date.now() - st.rateTime.getTime()) / 60000);
+      n.textContent = mins >= 15 ? 'Kurs je od ' + hhmm(st.rateTime) + ' (pre ' + mins + ' min). Osvežite ga pre transakcije.' : '';
+    }
+  }
+
+  function renderFeeNote() {
+    var v = parseNum($('pct').value);
+    var n = $('feeNote');
+    if (isNaN(v)) { n.textContent = 'Unesite proviziju u procentima.'; return; }
+    n.textContent = (v < FEE_MIN || v > FEE_MAX) ? 'Provizija je van dozvoljenog opsega od 0,3 do 5 %.' : '';
+  }
+
+  function renderChips() {
+    var v = parseNum($('pct').value);
+    var btns = $('chips').children;
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].setAttribute('aria-pressed', String(!isNaN(v) && Math.abs(v - CHIPS[i]) < 1e-9));
+    }
+  }
+
+  function renderMode() {
+    var a = st.dir === 'usdt2eur';
+    $('dirA').setAttribute('aria-pressed', String(a));
+    $('dirB').setAttribute('aria-pressed', String(!a));
+    var send = st.known === 'send';
+    var cur = (a === send) ? 'USDT' : 'EUR';
+    $('knA').setAttribute('aria-pressed', String(send));
+    $('knB').setAttribute('aria-pressed', String(!send));
+    $('knAb').textContent = a ? 'Šalje USDT' : 'Uplaćuje EUR';
+    $('knAs').textContent = a ? 'računam isplatu u EUR' : 'računam koliko USDT dobija';
+    $('knBb').textContent = a ? 'Želi isplatu u EUR' : 'Želi USDT';
+    $('knBs').textContent = a ? 'računam koliko USDT šalje' : 'računam koliko EUR uplaćuje';
+    $('amountLbl').textContent = a ? (send ? 'Klijent šalje' : 'Klijent želi isplatu') : (send ? 'Klijent uplaćuje' : 'Klijent želi');
+    $('amountUnit').textContent = cur;
+    $('amountUnit').setAttribute('data-cur', cur);
+    $('feeModeField').hidden = !(st.dir === 'eur2usdt' && send);
+    $('fmDeduct').setAttribute('aria-pressed', String(st.feeMode === 'deduct'));
+    $('fmAdd').setAttribute('aria-pressed', String(st.feeMode === 'add'));
+    var u = st.rateDir === 'usd-eur';
+    $('rdUsd').setAttribute('aria-pressed', String(u));
+    $('rdEur').setAttribute('aria-pressed', String(!u));
+    $('rateUnit').textContent = u ? 'EUR' : 'USD';
+    $('rateUnit').setAttribute('data-cur', u ? 'EUR' : '');
+    var op = a ? (send ? 'a' : 'b') : (!send ? 'e' : (st.feeMode === 'deduct' ? 'c' : 'd'));
+    document.body.setAttribute('data-op', op);
+  }
+
+  function renderAll() {
+    renderMode(); renderRateNotes(); renderFeeNote(); renderChips(); renderSlip();
+  }
+
+  /* Događaji */
+  $('dirA').addEventListener('click', function () { st.dir = 'usdt2eur'; $('amount').value = $('amount').value; renderAll(); });
+  $('dirB').addEventListener('click', function () { st.dir = 'eur2usdt'; renderAll(); });
+  $('knA').addEventListener('click', function () { st.known = 'send'; renderAll(); });
+  $('knB').addEventListener('click', function () { st.known = 'get'; renderAll(); });
+  $('fmDeduct').addEventListener('click', function () { st.feeMode = 'deduct'; renderAll(); });
+  $('fmAdd').addEventListener('click', function () { st.feeMode = 'add'; renderAll(); });
+
+  $('amount').addEventListener('input', function () {
+    $('amount').classList.toggle('bad', isNaN(parseNum($('amount').value, true)) && $('amount').value.trim() !== '');
+    renderSlip();
+  });
+
+  function setRateDir(d) {
+    st.rateDir = d;
+    var e = st.eurPerUsd;
+    $('rate').value = plainRate(d === 'usd-eur' ? e : 1 / e);
+    renderMode(); renderRateNotes(); renderSlip();
+  }
+  $('rdUsd').addEventListener('click', function () { setRateDir('usd-eur'); });
+  $('rdEur').addEventListener('click', function () { setRateDir('eur-usd'); });
+
+  $('rate').addEventListener('input', function () {
+    var v = parseNum($('rate').value);
+    var ok = v > 0 && isFinite(v);
+    $('rate').classList.toggle('bad', !ok && $('rate').value.trim() !== '');
+    if (ok) {
+      st.eurPerUsd = st.rateDir === 'usd-eur' ? v : 1 / v;
+      st.rateEdited = true; st.rateTime = new Date();
+    } else {
+      st.eurPerUsd = NaN;
+    }
+    renderRateNotes(); renderSlip();
+  });
+
+  /* Svež kurs sa CurrencyFreaks (osnovna valuta USD) */
+  var KEY = 'obracun-isplata-cf-kljuc';
+  function getKey() { try { return localStorage.getItem(KEY) || ''; } catch (e) { return ''; } }
+  function setKey(k) { try { if (k) localStorage.setItem(KEY, k); else localStorage.removeItem(KEY); } catch (e) {} }
+  function fetchMsg(t, cls) { $('fetchMsg').className = 'note' + (cls ? ' ' + cls : ''); $('fetchMsg').textContent = t; }
+  function showKey(show) {
+    $('keyField').hidden = !show;
+    $('keyToggle').setAttribute('aria-expanded', String(show));
+  }
+  function fetchRate() {
+    var k = getKey().trim();
+    if (!k) { showKey(true); $('apiKey').focus(); fetchMsg('Prvo upišite API ključ za CurrencyFreaks.', 'warn'); return; }
+    var b = $('fetchBtn');
+    b.disabled = true; b.textContent = 'Preuzimam…';
+    fetchMsg('Preuzimam svež kurs…');
+    fetch('https://api.currencyfreaks.com/v2.0/rates/latest?apikey=' + encodeURIComponent(k) + '&symbols=EUR', { cache: 'no-store' })
+      .then(function (r) {
+        return r.json().then(function (j) { return { r: r, j: j }; }, function () { return { r: r, j: null }; });
+      })
+      .then(function (x) {
+        var j = x.j || {};
+        var e = j.rates ? parseFloat(j.rates.EUR) : NaN;
+        if (!x.r.ok || !(e > 0) || !isFinite(e) || (j.base && j.base !== 'USD')) {
+          var st_ = x.r.status;
+          var m = st_ === 401 || st_ === 403 ? 'CurrencyFreaks je odbio ključ. Proverite API ključ.'
+            : st_ === 429 ? 'Za ovaj ključ je potrošen broj dozvoljenih zahteva.'
+            : 'CurrencyFreaks nije vratio kurs' + (j.error && j.error.message ? ': ' + j.error.message : ' (greška ' + st_ + ').');
+          fetchMsg(m, 'warn');
+          return;
+        }
+        st.eurPerUsd = e; st.rateEdited = true; st.rateTime = new Date();
+        $('rate').value = plainRate(st.rateDir === 'usd-eur' ? e : 1 / e);
+        $('rate').classList.remove('bad');
+        fetchMsg('Svež kurs: 1 USD = ' + fR.format(e) + ' EUR, preuzet u ' + hhmm(st.rateTime) + '.', 'ok');
+        renderRateNotes(); renderSlip();
+      }, function () {
+        fetchMsg('Kurs nije stigao. Proverite internet vezu i pokušajte ponovo.', 'warn');
+      })
+      .then(function () { b.disabled = false; b.textContent = 'Osveži kurs'; });
+  }
+  $('fetchBtn').addEventListener('click', fetchRate);
+  $('keyToggle').addEventListener('click', function () { showKey($('keyField').hidden); });
+  $('apiKey').value = getKey();
+  $('apiKey').addEventListener('change', function () {
+    setKey($('apiKey').value.trim());
+    fetchMsg($('apiKey').value.trim() ? 'Ključ je sačuvan na ovom uređaju.' : 'Ključ je obrisan.', 'ok');
+  });
+  if (!getKey()) showKey(true);
+
+  function setPct(v, fromRange) {
+    if (!fromRange) {
+      $('pctRange').value = Math.min(FEE_MAX, Math.max(FEE_MIN, v));
+    }
+    renderFeeNote(); renderChips(); renderSlip();
+  }
+  $('pct').addEventListener('input', function () {
+    var v = parseNum($('pct').value);
+    $('pct').classList.toggle('bad', isNaN(v) && $('pct').value.trim() !== '');
+    if (!isNaN(v)) setPct(v, false); else { renderFeeNote(); renderChips(); renderSlip(); }
+  });
+  $('pctRange').addEventListener('input', function () {
+    var v = parseFloat($('pctRange').value);
+    $('pct').value = fP.format(v);
+    $('pct').classList.remove('bad');
+    setPct(v, true);
+  });
+
+  CHIPS.forEach(function (c) {
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'chip'; b.textContent = fP.format(c) + ' %';
+    b.setAttribute('aria-pressed', 'false');
+    b.addEventListener('click', function () {
+      $('pct').value = fP.format(c);
+      $('pct').classList.remove('bad');
+      setPct(c, false);
+    });
+    $('chips').appendChild(b);
+  });
+
+  /* Podela zarade: zadata provizija se deli u procentnim poenima */
+  function splitState() {
+    var t = parseNum($('pct').value);
+    if (!(t >= 0)) return null;
+    var a = sp.pa == null ? r2(t / 2) : sp.pa;
+    return { t: t, a: a, b: r2(t - a), ok: a >= 0 && a <= t + 1e-9 };
+  }
+  function splitParts() {
+    var s = splitState();
+    if (!last || !s || !s.ok || !(s.t > 0)) return null;
+    var a = r2(last.fee * s.a / s.t);
+    return { a: a, b: r2(last.fee - a), pa: s.a, pb: s.b };
+  }
+  function renderSplit() {
+    var s = splitState(), p = splitParts(), act = document.activeElement;
+    $('spFee').textContent = last && s ? fP.format(s.t) + ' % = ' + fmt(last.fee) + ' EUR' : '—';
+    if (s) {
+      if (act !== $('spPctA')) $('spPctA').value = fP.format(s.a);
+      if (act !== $('spPctB')) $('spPctB').value = fP.format(s.b);
+    }
+    $('spAmtA').textContent = p ? fmt(p.a) : '—';
+    $('spAmtB').textContent = p ? fmt(p.b) : '—';
+    $('spBar').style.width = (s && s.ok && s.t > 0 ? s.a / s.t * 100 : 50) + '%';
+    $('spNote').textContent = s && !s.ok ? 'Udeo jedne strane ne može biti veći od zadate provizije (' + fP.format(s.t) + ' %).' : '';
+  }
+  function saveSplit() { try { localStorage.setItem(SPLIT, JSON.stringify(sp)); } catch (e) {} }
+  function loadSplit() {
+    try {
+      var o = JSON.parse(localStorage.getItem(SPLIT) || 'null');
+      if (o && typeof o.a === 'string' && typeof o.b === 'string' && (o.pa === null || o.pa >= 0)) sp = o;
+    } catch (e) {}
+    $('spNameA').value = sp.a; $('spNameB').value = sp.b;
+  }
+  function onShareInput(id, isA) {
+    var v = parseNum($(id).value);
+    var ok = v >= 0;
+    $(id).classList.toggle('bad', !ok && $(id).value.trim() !== '');
+    if (!ok) return;
+    var t = parseNum($('pct').value);
+    sp.pa = isA ? v : r2((t >= 0 ? t : 0) - v);
+    saveSplit(); renderSplit();
+  }
+  $('spPctA').addEventListener('input', function () { onShareInput('spPctA', true); });
+  $('spPctB').addEventListener('input', function () { onShareInput('spPctB', false); });
+  $('spPctA').addEventListener('blur', renderSplit);
+  $('spPctB').addEventListener('blur', renderSplit);
+  $('spNameA').addEventListener('input', function () { sp.a = $('spNameA').value; saveSplit(); });
+  $('spNameB').addEventListener('input', function () { sp.b = $('spNameB').value; saveSplit(); });
+
+  /* Kopiranje */
+  function fallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+    return ok;
+  }
+  function flash(btn, msg) {
+    var old = btn.getAttribute('data-label') || btn.textContent;
+    btn.setAttribute('data-label', old);
+    btn.textContent = msg;
+    setTimeout(function () { btn.textContent = old; }, 1600);
+  }
+  $('copyBtn').addEventListener('click', function () {
+    if (!last) return;
+    var btn = $('copyBtn');
+    var done = function (ok) { flash(btn, ok ? 'Kopirano' : 'Kopiranje nije uspelo'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(last.text).then(function () { done(true); }, function () { done(fallbackCopy(last.text)); });
+    } else { done(fallbackCopy(last.text)); }
+  });
+
+  /* Evidencija */
+  function loadHistory() {
+    try {
+      var raw = localStorage.getItem(STORE);
+      var arr = raw ? JSON.parse(raw) : [];
+      history = Array.isArray(arr) ? arr.filter(function (x) { return x && typeof x.line === 'string'; }) : [];
+    } catch (e) { history = []; }
+  }
+  function saveHistory() {
+    try { localStorage.setItem(STORE, JSON.stringify(history)); } catch (e) {}
+  }
+  function renderHistory() {
+    var ul = $('histList');
+    ul.textContent = '';
+    $('clearBtn').hidden = history.length === 0;
+    if (!history.length) {
+      var li = document.createElement('li');
+      li.className = 'none'; li.style.display = 'block';
+      li.textContent = 'Još nema sačuvanih obračuna. Pritisnite „Sačuvaj u evidenciju“ kad obračun bude gotov.';
+      ul.appendChild(li); return;
+    }
+    history.forEach(function (h) {
+      var li = document.createElement('li');
+      var t = document.createElement('time'); t.textContent = h.time;
+      var s = document.createElement('span'); s.textContent = h.line;
+      li.appendChild(t); li.appendChild(s); ul.appendChild(li);
+    });
+  }
+  $('saveBtn').addEventListener('click', function () {
+    if (!last) return;
+    var p = splitParts();
+    var line = last.summary + (p ? ' · podela: ' + (sp.a.trim() || 'Strana 1') + ' ' + fP.format(p.pa) + ' % = ' + fmt(p.a) + ' EUR / ' + (sp.b.trim() || 'Strana 2') + ' ' + fP.format(p.pb) + ' % = ' + fmt(p.b) + ' EUR' : '');
+    history.unshift({ time: stamp(new Date()), line: line });
+    history = history.slice(0, 50);
+    saveHistory(); renderHistory(); flash($('saveBtn'), 'Sačuvano');
+  });
+  var clearArmed = null;
+  $('clearBtn').addEventListener('click', function () {
+    var b = $('clearBtn');
+    if (!clearArmed) {
+      b.textContent = 'Potvrdi brisanje'; b.classList.add('danger');
+      clearArmed = setTimeout(function () { clearArmed = null; b.textContent = 'Obriši evidenciju'; b.classList.remove('danger'); }, 4000);
+      return;
+    }
+    clearTimeout(clearArmed); clearArmed = null;
+    b.textContent = 'Obriši evidenciju'; b.classList.remove('danger');
+    history = []; saveHistory(); renderHistory();
+  });
+
+  loadSplit();
+  loadHistory();
+  renderHistory();
+  renderAll();
+  setInterval(renderRateNotes, 30000);
+})();
+</script>
+
+</body></html>
